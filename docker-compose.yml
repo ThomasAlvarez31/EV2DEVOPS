@@ -1,0 +1,291 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP (productores/consumidores)
+      - "15672:15672" # Consola de administración (http://localhost:15672)
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    volumes:
+      # Por defecto el usuario "guest" solo conecta desde localhost; con esto
+      # puede entrar desde el navegador y desde los demas contenedores.
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    restart: unless-stopped
+
+  ms-productos:
+    build: ./ms-productos
+    container_name: ms-productos
+    ports:
+      - "8081:8081"
+      - "18081:8081" # tambien en 18081: es la URL que usa el frontend en local (environment.ts)
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # Siembra de 8 productos solo si la base arranca vacia (ver .env).
+      CATALOGO_SEED: ${CATALOGO_SEED:-true}
+      # Consumidor ASINCRONO de stock: descuenta y repone inventario segun
+      # los eventos que publica ms-carrito (cola pedidos360.stock).
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  ms-identidad:
+    build: ./ms-identidad
+    container_name: ms-identidad
+    ports:
+      - "8082:8082"
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+    restart: unless-stopped
+
+  ms-carrito:
+    build: ./ms-carrito
+    container_name: ms-carrito
+    ports:
+      - "8083:8083"
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Dentro del contenedor "localhost" es el propio contenedor: el catalogo
+      # se consulta por el nombre del servicio en la red de Docker.
+      PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://ms-productos:8081/productos}
+      # ms-pagos decide y registra el resultado del pago.
+      PAGOS_SERVICE_URL: ${PAGOS_SERVICE_URL:-http://ms-pagos:8085/pagos}
+      # Broker del log de eventos que publica para monitoreo.
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      # Base de datos de pedidos/carrito en disco (si no, se pierde al reiniciar).
+      DB_URL: jdbc:h2:file:/data/pedidos360_carrito
+    volumes:
+      - carrito-data:/data
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  ms-email:
+    build: ./ms-email
+    container_name: ms-email
+    ports:
+      - "8084:8084"
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Credenciales SMTP reales: definirlas en un archivo .env al hacer deploy
+      # (no se dejan valores secretos en este archivo).
+      MAIL_HOST: smtp.gmail.com
+      MAIL_PORT: "587"
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@pedidos360.cl}
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  # Microservicio administrador de RabbitMQ: crea, lista y borra colas,
+  # exchanges y bindings por API REST (POST /queues, DELETE /queues/{name},
+  # POST /exchanges, POST /bindings, ...). Solo gestiona lo que se le pide,
+  # asi no pisa las colas que declaran los demas microservicios.
+  ms-rabbit-admin:
+    build: ./ms-rabbit-admin
+    container_name: ms-rabbit-admin
+    ports:
+      - "8087:8087"
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # API de gestion del broker: solo para LISTAR colas/exchanges/bindings
+      # (crear y borrar se hace por AMQP, puerto 5672).
+      RABBITMQ_MGMT_URL: ${RABBITMQ_MGMT_URL:-http://rabbitmq:15672}
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  # Orders-service: registro formal de las ordenes de compra. Consumidor de
+  # RabbitMQ (cola pedidos360.ordenes, las 4 routing keys del sistema) con
+  # API REST propia (GET /ordenes, GET /ordenes/{id}, ...). NO crea nada por
+  # su cuenta: las ordenes nacen de los eventos de ms-carrito.
+  ms-ordenes:
+    build: ./ms-ordenes
+    container_name: ms-ordenes
+    ports:
+      - "8088:8088"   # solo para pruebas locales; en AWS no abrir en el SG
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Ordenes en disco: si no, al reiniciar se borran y los eventos ya
+      # consumidos no se pueden volver a aplicar.
+      DB_URL: jdbc:h2:file:/data/pedidos360_ordenes
+    volumes:
+      - ordenes-data:/data
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  # Microservicio de Despachos (envios): el microservicio elegido para este
+  # ejercicio. Consumidor de RabbitMQ (cola pedidos360.despachos: pago
+  # aprobado y cambio de estado) con API REST propia (GET /despachos, ...).
+  ms-despachos:
+    build: ./ms-despachos
+    container_name: ms-despachos
+    ports:
+      - "8089:8089"   # solo para pruebas locales; en AWS no abrir en el SG
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # En multi-EC2 va la IP/puerto de la instancia que corre rabbitmq.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Despachos en disco: las guias de envio deben sobrevivir a reinicios.
+      DB_URL: jdbc:h2:file:/data/pedidos360_despachos
+    volumes:
+      - despachos-data:/data
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./pedidos360-frontend
+      args:
+        # production = environment.prod.ts (login Azure + API Gateway, despliegue real).
+        # docker = environment.docker.ts (demo local: login real con MS, URLs localhost).
+        # Se elige por variable:
+        #   NG_BUILD_CONFIG=docker en .env => build para demo local (solo local).
+        NG_BUILD_CONFIG: ${NG_BUILD_CONFIG:-production}
+    container_name: pedidos360-frontend
+    environment:
+      # Reverse proxy (nginx.conf): a donde se deriva cada prefijo de API.
+      # En LOCAL ya estan las respuestas por defecto (nombres de la red de
+      # Docker); en multi-EC2 se sobreescriben en el .env con las IPs.
+      MS_PRODUCTOS_URL: ${MS_PRODUCTOS_URL:-http://ms-productos:8081}
+      MS_IDENTIDAD_URL: ${MS_IDENTIDAD_URL:-http://ms-identidad:8082}
+      MS_CARRITO_URL: ${MS_CARRITO_URL:-http://ms-carrito:8083}
+      MS_ORDENES_URL: ${MS_ORDENES_URL:-http://ms-ordenes:8088}
+      MS_DESPACHOS_URL: ${MS_DESPACHOS_URL:-http://ms-despachos:8089}
+      MS_EMAIL_URL: ${MS_EMAIL_URL:-http://ms-email:8084}
+      MS_RABBIT_URL: ${MS_RABBIT_URL:-http://ms-rabbit-admin:8087}
+      MS_MONITOREO_URL: ${MS_MONITOREO_URL:-http://ms-monitoreo:8086}
+    ports:
+      - "80:80"
+      - "4200:80" # local: http://localhost:4200 (redirectUri registrado en Azure)
+    depends_on:
+      - ms-productos
+      - ms-identidad
+      - ms-carrito
+    restart: unless-stopped
+
+  # Log de eventos de negocio para monitoreo (Kafka en modo KRaft: sin ZooKeeper).
+  # - PLAINTEXT (kafka:9092) lo usan los microservicios dentro de la red Docker.
+  # - EXTERNAL (127.0.0.1:9094) sirve para inspeccionarlo desde la maquina
+  #   local; al ser 127.0.0.1 en AWS NO queda expuesto por el Security Group.
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: kafka
+    ports:
+      - "127.0.0.1:9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      # PLAINTEXT es lo que usan los microservicios: en multi-EC2 hay que
+      # poner KAFKA_ADVERTISED_HOST=<IP de esta instancia> en el .env.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_ADVERTISED_HOST:-kafka}:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    restart: unless-stopped
+
+  # Microservicio de monitoreo: consume el topico pedidos360.monitoreo y
+  # expone los eventos recientes y las estadisticas (GET /monitoreo/*).
+  ms-monitoreo:
+    build: ./ms-monitoreo
+    container_name: ms-monitoreo
+    ports:
+      - "8086:8086"
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  # Microservicio de pagos (simulados): lo llama ms-carrito al confirmar la
+  # compra. NO necesita ruta publica en el API Gateway ni puerto abierto en el
+  # Security Group: solo ms-pagos y ms-carrito se hablan por la red de Docker.
+  ms-pagos:
+    build: ./ms-pagos
+    container_name: ms-pagos
+    ports:
+      - "8085:8085"   # solo para pruebas locales; en AWS no abrir en el SG
+    environment:
+      AZURE_ISSUER_URI: https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0
+      AUTH_BYPASS: ${AUTH_BYPASS:-false} # true = pruebas locales sin login Azure (ver .env)
+      # Segundo emisor de identidad aceptado (Amazon Cognito): si se deja vacio
+      # los backends solo validan tokens de Microsoft Entra ID.
+      COGNITO_ISSUER_URL: ${COGNITO_ISSUER_URL:-}
+      # Pagos en disco: si no, al reiniciar se borran y se perderia el
+      # registro que evita pagar dos veces el mismo pedido.
+      DB_URL: jdbc:h2:file:/data/pedidos360_pagos
+    volumes:
+      - pagos-data:/data
+    restart: unless-stopped
+
+# Volumenes con datos que deben sobrevivir a `docker compose down`
+volumes:
+  carrito-data:
+  pagos-data:
+  ordenes-data:
+  despachos-data:

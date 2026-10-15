@@ -1,0 +1,98 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ms-productos
+
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:pedidos360_productos}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Broker de mensajes (en docker-compose apunta al servicio "rabbitmq").
+  # El stock se descuenta y se repone de forma ASINCRONA a partir de los
+  # eventos publicados por ms-carrito.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # Confirmacion EXPLICITA del consumidor: StockListener hace basicAck /
+        # basicNack sobre el canal (com.rabbitmq.client.Channel). El
+        # contenedor NO confirma ni re-encola nada por su cuenta.
+        acknowledge-mode: manual
+        # Solo un mensaje en vuelo por hilo: si la aplicacion se cae, el
+        # mensaje sin confirmar vuelve a la cola (al menos una vez).
+        prefetch: 1
+        # Nunca se re-encola automaticamente al fallar el listener: la
+        # decision de requeue la toma el propio StockListener.
+        default-requeue-rejected: false
+        # Sin reintentos del contenedor: las decisiones de error (mensaje
+        # ilegible vs evento repetido vs fallo de base de datos) estan en
+        # StockListener, para que sean visibles y diferenciadas en el codigo.
+        retry:
+          enabled: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AZURE_ISSUER_URI:https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0}
+
+# Prueba local sin Azure (AUTH_BYPASS=true): no se exige JWT.
+# Por defecto false => autenticacion completa con Microsoft Entra ID.
+app:
+  auth:
+    bypass: ${AUTH_BYPASS:false}
+    # Segundo emisor de identidad aceptado: Amazon Cognito (cuentas propias
+    # de la tienda). Vacio = solo Microsoft Entra ID.
+    cognito-issuer: ${COGNITO_ISSUER_URL:}
+
+  # Siembra de 8 productos de ejemplo cuando la base arranca VACIA
+  # (sirve para que el catalogo no este en blanco en el primer despliegue).
+  # Poner CATALOGO_SEED=false si se apunta a una BD con productos reales.
+  catalogo:
+    seed: ${CATALOGO_SEED:true}
+
+# ---------------------------------------------------------------
+# Rutas de mensajeria RabbitMQ del consumidor de STOCK. Este
+# microservicio declara su cola, su DLQ y sus bindings; StockListener
+# lee la cola con ${pedidos360.messaging.stock.queue}. El EXCHANGE es
+# del sistema y lo declara el productor (ms-carrito) con EXACTAMENTE
+# el mismo nombre (mismos argumentos -> sin PRECONDITION_FAILED).
+#
+# Rutas consumidas:
+#   pedido.registrado -> descuenta el stock de cada item del pedido
+#   pago.rechazado    -> repone el stock (el pedido queda CANCELADO)
+# ---------------------------------------------------------------
+pedidos360:
+  messaging:
+    stock:
+      # Exchange directo de eventos de negocio (el productor lo declara).
+      exchange: ${MESSAGING_EVENTOS_EXCHANGE:pedidos360.eventos.topic}
+      # Cola que consume este microservicio.
+      queue: ${MESSAGING_STOCK_QUEUE:pedidos360.stock}
+      # Cola de respaldo (dead letter) si el mensaje no se puede entregar.
+      dlq: ${MESSAGING_STOCK_DLQ:pedidos360.stock.dlq}
+      # Binding = exchange + routing key -> cola. Una entrada por ruta.
+      routing-keys:
+        pedido-registrado: ${MESSAGING_RK_PEDIDO_REGISTRADO:pedido.registrado}
+        pago-rechazado: ${MESSAGING_RK_PAGO_RECHAZADO:pago.rechazado}

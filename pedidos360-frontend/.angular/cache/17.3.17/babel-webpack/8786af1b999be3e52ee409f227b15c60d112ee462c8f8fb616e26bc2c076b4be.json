@@ -1,0 +1,1 @@
+{"ast":null,"code":"/*! @azure/msal-common v14.16.1 2025-08-05 */\n'use strict';\n\n/* eslint-disable header/header */\nconst name = \"@azure/msal-common\";\nconst version = \"14.16.1\";\nexport { name, version };\n//# sourceMappingURL=packageMetadata.mjs.map","map":null,"metadata":{},"sourceType":"module","externalDependencies":[]}

@@ -1,0 +1,44 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: ms-rabbit-admin
+
+  # Broker que administra este microservicio (en docker-compose apunta al
+  # servicio "rabbitmq"). Colas, exchanges y bindings se crean/borran aqui
+  # por AMQP. Este servicio NO declara colas propias al arrancar: solo crea
+  # lo que se pide por la API, para no pisar las colas de los demas
+  # microservicios.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AZURE_ISSUER_URI:https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0}
+
+# Prueba local sin Azure (AUTH_BYPASS=true): no se exige JWT.
+# Por defecto false => autenticacion completa con Microsoft Entra ID.
+app:
+  auth:
+    bypass: ${AUTH_BYPASS:false}
+    # Segundo emisor de identidad aceptado: Amazon Cognito (cuentas propias
+    # de la tienda). Vacio = solo Microsoft Entra ID.
+    cognito-issuer: ${COGNITO_ISSUER_URL:}
+
+# API de gestion de RabbitMQ (plugin management, puerto 15672): se usa SOLO
+# para LISTAR colas/exchanges/bindings. Crear y borrar va por AMQP (5672).
+# En docker-compose: RABBITMQ_MGMT_URL=http://rabbitmq:15672
+pedidos360:
+  rabbit:
+    management:
+      base-url: ${RABBITMQ_MGMT_URL:http://localhost:15672}
+      username: ${RABBITMQ_MGMT_USERNAME:${RABBITMQ_USERNAME:guest}}
+      password: ${RABBITMQ_MGMT_PASSWORD:${RABBITMQ_PASSWORD:guest}}
+      connect-timeout-ms: ${RABBITMQ_MGMT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${RABBITMQ_MGMT_TIMEOUT_MS:5000}

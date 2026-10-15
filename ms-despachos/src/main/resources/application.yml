@@ -1,0 +1,96 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: ms-despachos
+
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:pedidos360_despachos}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Broker de mensajes (en docker-compose apunta al servicio "rabbitmq").
+  # El despacho se GENERA de forma asincrona cuando el pago se aprueba y
+  # avanza con los cambios de estado del pedido: este microservicio no
+  # llama a ningun otro servicio.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # Confirmacion EXPLICITA del consumidor: DespachoListener hace
+        # basicAck / basicNack sobre el canal (com.rabbitmq.client.Channel).
+        # El contenedor NO confirma ni re-encola nada por su cuenta.
+        acknowledge-mode: manual
+        # Solo un mensaje en vuelo por hilo: si la aplicacion se cae, el
+        # mensaje sin confirmar vuelve a la cola (al menos una vez).
+        prefetch: 1
+        # Nunca se re-encola automaticamente al fallar el listener: la
+        # decision de requeue la toma el propio DespachoListener.
+        default-requeue-rejected: false
+        # Sin reintentos del contenedor: las decisiones de error estan en
+        # DespachoListener, para que sean visibles y diferenciadas en el codigo.
+        retry:
+          enabled: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AZURE_ISSUER_URI:https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0}
+
+# Prueba local sin Azure (AUTH_BYPASS=true): no se exige JWT.
+# Por defecto false => autenticacion completa con Microsoft Entra ID.
+app:
+  auth:
+    bypass: ${AUTH_BYPASS:false}
+    # Segundo emisor de identidad aceptado: Amazon Cognito (cuentas propias
+    # de la tienda). Vacio = solo Microsoft Entra ID.
+    cognito-issuer: ${COGNITO_ISSUER_URL:}
+
+# ---------------------------------------------------------------
+# Rutas de mensajeria RabbitMQ del consumidor de DESPACHOS. Este
+# microservicio declara su cola, su DLQ y sus bindings;
+# DespachoListener lee la cola con ${pedidos360.messaging.despachos.queue}.
+# El EXCHANGE es del sistema y lo declara el productor (ms-carrito) con
+# EXACTAMENTE el mismo nombre (sin PRECONDITION_FAILED).
+#
+# Rutas consumidas:
+#   pago.aprobado       -> genera el despacho con guia de envio
+#   pedido.cambio_estado-> avanza el despacho (EN_RUTA / ENTREGADO)
+# ---------------------------------------------------------------
+pedidos360:
+  messaging:
+    despachos:
+      # Exchange directo de eventos de negocio (el productor lo declara).
+      exchange: ${MESSAGING_EVENTOS_EXCHANGE:pedidos360.eventos.topic}
+      # Cola que consume este microservicio.
+      queue: ${MESSAGING_DESPACHOS_QUEUE:pedidos360.despachos}
+      # Cola de respaldo (dead letter) si el mensaje no se puede entregar.
+      dlq: ${MESSAGING_DESPACHOS_DLQ:pedidos360.despachos.dlq}
+      # Binding = exchange + routing key -> cola. Una entrada por ruta.
+      routing-keys:
+        pago-aprobado: ${MESSAGING_RK_PAGO_APROBADO:pago.aprobado}
+        cambio-estado: ${MESSAGING_RK_CAMBIO_ESTADO:pedido.cambio_estado}
+      # Politica de reintentos del consumidor (ACK explicito).
+      consumer:
+        max-attempts: ${MESSAGING_DESPACHOS_MAX_ATTEMPTS:3}
+        retry-delay-ms: ${MESSAGING_DESPACHOS_RETRY_DELAY_MS:1000}

@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Pedidos360 - Amazon Cognito User Pool (segundo IDaaS del proyecto EP3).
+  Crea el User Pool, el App Client para la SPA Angular (sin secreto, sin MFA)
+  y publica como salida el COGNITO_ISSUER_URL que validan los 7
+  microservicios y los 3 valores que van en environment.prod.ts.
+
+# ----------------------------------------------------------------------------------
+# CÓMO USAR ESTA PLANTILLA (no requiere AWS CLI)
+#   1. AWS Console -> CloudFormation -> Create stack -> With new resources (standard)
+#   2. "Prepare template" = Template is ready / "Template source" = Upload a template file
+#   3. Subir aws/cognito-pool.yaml / Next / Next / Submit (no hay que llenar parámetros)
+#   4. Esperar a que quede CREATE_COMPLETE
+#   5. Pestaña "Outputs": copiar UserPoolId, UserPoolClientId y COGNITO_ISSUER_URL
+# ----------------------------------------------------------------------------------
+
+Parameters:
+  NombreAplicacion:
+    Type: String
+    Default: Pedidos360
+    MinLength: 3
+    MaxLength: 32
+    Description: Nombre que se antepone al User Pool (Pedidos360-usuarios).
+
+Resources:
+  # --------------------------------------------------------------------------
+  # 1) User Pool: cuentas PROPIAS de la tienda (email + contraseña, sin MFA).
+  # --------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub '${NombreAplicacion}-usuarios'
+      # Permite que la persona cree su cuenta desde /login (Crear cuenta).
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      # Login con email (amazon-cognito-identity-js envía Username = email).
+      UsernameAttributes:
+        - email
+      # Enviar código de verificación al correo al registrarse (CONFIRM_WITH_CODE
+      # en vez de link: el frontend /login tiene un campo de código).
+      AutoVerifiedAttributes:
+        - email
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+      MfaConfiguration: 'OFF'
+      # PasswordPolicy del User Pool = la validación que muestra CognitoService
+      # (InvalidPasswordException / PasswordComplexityException).
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      # Para que el frontend pueda mostrar "No existe ninguna cuenta con ese
+      # email" (UserNotFoundException) en lugar de un error genérico.
+      UserPoolAddOns:
+        AdvancedSecurityMode: OFF
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  # --------------------------------------------------------------------------
+  # 2) App Client (SPA): sin secreto, SRP + contraseña, tokens de 1 hora.
+  # --------------------------------------------------------------------------
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${NombreAplicacion}-spa'
+      UserPoolId: !Ref UserPool
+      # Sin secreto = obligatorio para una SPA pública (y para USER_SRP_AUTH).
+      GenerateSecret: false
+      PreventUserExistenceErrors: DISABLED
+      SupportedIdentityProviders:
+        - COGNITO
+      # Lo que usa amazon-cognito-identity-js (CognitoService.iniciarSesion).
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      EnableTokenRevocation: true
+      TokenValidityUnits:
+        IdToken: hours
+        AccessToken: hours
+        RefreshToken: days
+      IdTokenValidity: 1
+      AccessTokenValidity: 1
+      RefreshTokenValidity: 30
+
+Outputs:
+  UserPoolId:
+    Description: COGNITO_USER_POOL_ID -> environment.prod.ts (cognitoUserPoolId)
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${NombreAplicacion}-UserPoolId'
+
+  UserPoolClientId:
+    Description: COGNITO_CLIENT_ID -> environment.prod.ts (cognitoClientId)
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub '${NombreAplicacion}-UserPoolClientId'
+
+  COGNITO_ISSUER_URL:
+    Description: >-
+      COGNITO_ISSUER_URL -> .env del servidor (va a los 7 microservicios a traves
+      de docker-compose.yml). Es el emisor que acepta el MultiIssuerJwtDecoder.
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+    Export:
+      Name: !Sub '${NombreAplicacion}-IssuerUrl'
+
+  UserPoolArn:
+    Description: ARN del User Pool (por si se agrega un authorizador en el API Gateway).
+    Value: !GetAtt UserPool.Arn
+
+  RegionesDisponibles:
+    Description: Region donde se creo el User Pool.
+    Value: !Ref AWS::Region

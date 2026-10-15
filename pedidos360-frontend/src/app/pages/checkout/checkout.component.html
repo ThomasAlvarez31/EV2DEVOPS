@@ -1,0 +1,174 @@
+<div class="page-space">
+
+  <!-- ============ RESULTADO ============ -->
+  <ng-container *ngIf="resultado === 'aprobado'">
+    <div class="resultado-estado ok">
+      <div class="resultado-icono" aria-hidden="true">&#10003;</div>
+      <h1>Pago aprobado</h1>
+      <p *ngIf="pedido">
+        Tu pedido <strong>#{{ pedido.id }}</strong> está confirmado por
+        <strong>${{ pedido.total | number:'1.0-0' }}</strong>.
+        Te enviamos la confirmación por correo electrónico.
+      </p>
+      <div class="resultado-acciones">
+        <a routerLink="/pedidos" class="btn btn-accent btn-lg">Ver mis pedidos</a>
+        <a routerLink="/catalogo" class="btn btn-outline btn-lg">Seguir comprando</a>
+      </div>
+    </div>
+  </ng-container>
+
+  <ng-container *ngIf="resultado === 'rechazado'">
+    <div class="resultado-estado error">
+      <div class="resultado-icono" aria-hidden="true">&#10005;</div>
+      <h1>Pago rechazado</h1>
+      <p *ngIf="pedido">
+        El pago del pedido <strong>#{{ pedido.id }}</strong> fue rechazado por la tarjeta.
+        El pedido quedó cancelado y tu carrito fue restaurado con los mismos productos.
+      </p>
+      <div class="resultado-acciones">
+        <button class="btn btn-primary btn-lg" type="button" (click)="reiniciar()">Intentar de nuevo</button>
+        <a routerLink="/carrito" class="btn btn-outline btn-lg">Volver al carrito</a>
+      </div>
+    </div>
+  </ng-container>
+
+  <ng-container *ngIf="resultado === 'fallo'">
+    <div class="resultado-estado error">
+      <div class="resultado-icono" aria-hidden="true">!</div>
+      <h1>No pudimos completar la compra</h1>
+      <p>{{ errorPago || 'Ocurrió un error inesperado.' }}</p>
+      <div class="resultado-acciones">
+        <button class="btn btn-primary btn-lg" type="button" (click)="confirmar()">Reintentar</button>
+        <a routerLink="/carrito" class="btn btn-outline btn-lg">Volver al carrito</a>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ============ FORMULARIO ============ -->
+  <div *ngIf="!resultado">
+    <div class="seccion-cabecera">
+      <div>
+        <h1>Checkout</h1>
+        <p class="muted">Paso final: revisá tu pedido y elegí cómo pagar.</p>
+      </div>
+      <a routerLink="/carrito" class="btn btn-outline btn-sm">Volver al carrito</a>
+    </div>
+
+    <div class="loading" *ngIf="cargando">
+      <div class="spinner"></div>
+      Cargando carrito...
+    </div>
+
+    <div class="alert alert-error" *ngIf="error && !cargando">
+      {{ error }}
+      <a routerLink="/catalogo" class="btn btn-sm btn-secondary">Ir al catálogo</a>
+    </div>
+
+    <div class="checkout-layout" *ngIf="!cargando && items.length > 0">
+      <div class="checkout-main">
+
+        <section class="panel">
+          <h2>1. Método de pago</h2>
+          <p class="muted">Pagos simulados: no se procesa ningún cargo real ni se almacena tu tarjeta.</p>
+
+          <div class="metodo-grid">
+            <button class="metodo-card" type="button"
+                    [class.active]="metodoPago === m"
+                    *ngFor="let m of metodos"
+                    (click)="metodoPago = m">
+              <span class="metodo-icono" aria-hidden="true">
+                {{ m === 'TARJETA_CREDITO' ? '&#128179;' : m === 'TARJETA_DEBITO' ? '&#128179;' : '&#128181;' }}
+              </span>
+              <span class="metodo-nombre">{{ etiquetas[m] }}</span>
+            </button>
+          </div>
+
+          <div class="form-grid" *ngIf="esTarjeta">
+            <div class="campo">
+              <label for="numero">Número de tarjeta</label>
+              <input id="numero" type="text" inputmode="numeric" autocomplete="cc-number"
+                     maxlength="19" placeholder="4111 1111 1111 1111"
+                     [(ngModel)]="tarjeta.numero" (input)="formatearNumero()" />
+            </div>
+            <div class="campo">
+              <label for="titular">Titular</label>
+              <input id="titular" type="text" autocomplete="cc-name"
+                     placeholder="Nombre como figura en la tarjeta"
+                     [(ngModel)]="tarjeta.titular" />
+            </div>
+            <div class="campo campo-corto">
+              <label for="vence">Vencimiento</label>
+              <input id="vence" type="text" inputmode="numeric" autocomplete="cc-exp"
+                     maxlength="5" placeholder="MM/AA"
+                     [(ngModel)]="tarjeta.vencimiento" (input)="formatearVencimiento()" />
+            </div>
+            <div class="campo campo-corto">
+              <label for="cvv">CVV</label>
+              <input id="cvv" type="password" inputmode="numeric" autocomplete="cc-csc"
+                     maxlength="3" placeholder="123"
+                     [(ngModel)]="tarjeta.cvv" />
+            </div>
+          </div>
+
+          <div class="demo-info" *ngIf="esTarjeta">
+            <strong>Datos de prueba.</strong> Solo se usan en tu navegador para simular la
+            experiencia: no se envían a ningún microservicio ni se guardan.
+            Prueba con <code>4111 1111 1111 1111</code>.
+          </div>
+
+          <div class="demo-info" *ngIf="metodoPago === 'TRANSFERENCIA'">
+            <strong>Transferencia simulada.</strong> No se generan datos bancarios reales:
+            al confirmar, el pedido avanza a la siguiente etapa igual que con tarjeta.
+          </div>
+
+          <div class="demo-toggle">
+            <label class="switch">
+              <input type="checkbox" [(ngModel)]="simularRechazo" />
+              <span class="switch-slider" aria-hidden="true"></span>
+            </label>
+            <span>
+              <strong>Modo demo: simular pago rechazado</strong>
+              <small>Actívalo para ver el camino de error: el pedido se cancela y el carrito se restaura.</small>
+            </span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>2. Tu pedido</h2>
+          <div class="pedido-resumen-item" *ngFor="let item of items">
+            <img [src]="item.imagenUrl || imagenDefecto" [alt]="item.nombreProducto" />
+            <div class="pedido-resumen-info">
+              <strong>{{ item.nombreProducto }}</strong>
+              <span class="muted">{{ item.cantidad }} × ${{ item.precioUnitario | number:'1.0-0' }}</span>
+            </div>
+            <span>${{ item.precioUnitario * item.cantidad | number:'1.0-0' }}</span>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="resumen-card">
+        <h2>Resumen</h2>
+        <div class="resumen-fila"><span>Productos ({{ items.length }})</span>
+          <span>${{ total | number:'1.0-0' }}</span></div>
+        <div class="resumen-fila"><span>Envío</span><span class="texto-exito">Gratis</span></div>
+        <div class="resumen-fila" *ngIf="metodoPago"><span>Pago</span>
+          <span>{{ etiquetas[metodoPago] }}</span></div>
+
+        <div class="resumen-total">
+          <span>Total</span><span>${{ total | number:'1.0-0' }}</span>
+        </div>
+
+        <div class="alert alert-error" *ngIf="errorPago && !procesando && !error">{{ errorPago }}</div>
+
+        <button class="btn btn-accent btn-lg btn-bloque" type="button"
+                [disabled]="!puedePagar || procesando"
+                (click)="confirmar()">
+          {{ procesando ? 'Procesando…' : 'Confirmar y pagar' }}
+        </button>
+
+        <p class="resumen-nota">Al confirmar, ms-carrito registra tu pedido y procesa el pago simulado.</p>
+      </aside>
+    </div>
+  </div>
+</div>

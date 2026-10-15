@@ -1,0 +1,135 @@
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">🛒</div>
+    <h1>Pedidos360</h1>
+    <p class="subtitle">La tienda de departamentos tecnológicos más simple y segura, con acceso por
+      Microsoft Entra ID o con tu propia cuenta en Amazon Cognito.</p>
+
+    <ng-container *ngIf="!estaAutenticado">
+      <div class="login-features">
+        <div class="login-feature">
+          <span class="login-feature-icon">🔐</span>
+          <div class="login-feature-text">
+            <strong>Login seguro</strong>
+            Cuenta institucional Microsoft o cuenta propia de la tienda
+          </div>
+        </div>
+        <div class="login-feature">
+          <span class="login-feature-icon">📦</span>
+          <div class="login-feature-text">
+            <strong>Catálogo completo</strong>
+            Tecnología, deportes, hogar y más
+          </div>
+        </div>
+        <div class="login-feature">
+          <span class="login-feature-icon">🛒</span>
+          <div class="login-feature-text">
+            <strong>Carrito de compras</strong>
+            Agrega productos y confirma tu pedido
+          </div>
+        </div>
+        <div class="login-feature">
+          <span class="login-feature-icon">🚀</span>
+          <div class="login-feature-text">
+            <strong>Arquitectura cloud-native</strong>
+            AWS + Azure + Angular y microservicios
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-error" *ngIf="error" style="text-align:left;">
+        {{ error }}
+      </div>
+
+      <button class="btn btn-microsoft" (click)="login()" [disabled]="iniciando">
+        <span class="spinner spinner-sm" *ngIf="iniciando" aria-hidden="true"></span>
+        <svg *ngIf="!iniciando" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23">
+          <path fill="#f35325" d="M1 1h10v10H1z"/>
+          <path fill="#81bc06" d="M12 1h10v10H12z"/>
+          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+          <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        </svg>
+        {{ iniciando ? 'Redirigiendo a Microsoft…' : 'Iniciar sesión con Microsoft' }}
+      </button>
+
+      <div class="login-separador"><span>o con tu cuenta de la tienda</span></div>
+
+      <!-- ---------------------------------------------------- Amazon Cognito -->
+      <div class="login-cognito">
+        <div class="login-cognito-tabs">
+          <button type="button" [class.activa]="modo === 'entrar'" (click)="cambiarModo('entrar')">
+            Iniciar sesión
+          </button>
+          <button type="button" [class.activa]="modo === 'crear'" (click)="cambiarModo('crear')">
+            Crear cuenta
+          </button>
+        </div>
+
+        <div class="alert alert-info" *ngIf="aviso" style="text-align:left;">{{ aviso }}</div>
+
+        <form (ngSubmit)="enviarFormulario()" style="text-align:left;">
+          <div class="campo" *ngIf="modo === 'crear'">
+            <label for="cognito-nombre">Nombre</label>
+            <input id="cognito-nombre" name="nombre" [(ngModel)]="nombre"
+                   autocomplete="name" placeholder="Cómo quieres que te llamemos" />
+          </div>
+
+          <div class="campo">
+            <label for="cognito-email">Email</label>
+            <input id="cognito-email" name="email" type="email" [(ngModel)]="email"
+                   autocomplete="email" placeholder="tu@correo.cl" />
+          </div>
+
+          <div class="campo">
+            <label for="cognito-password">Contraseña</label>
+            <input id="cognito-password" name="password" type="password" [(ngModel)]="password"
+                   [autocomplete]="modo === 'crear' ? 'new-password' : 'current-password'"
+                   placeholder="••••••••" />
+          </div>
+
+          <div class="campo" *ngIf="modo === 'confirmar'">
+            <label for="cognito-codigo">Código de verificación</label>
+            <input id="cognito-codigo" name="codigo" [(ngModel)]="codigo"
+                   autocomplete="one-time-code" placeholder="123456" />
+          </div>
+
+          <button class="btn btn-primary btn-bloque" type="submit" [disabled]="procesando">
+            <span class="spinner spinner-sm" *ngIf="procesando" aria-hidden="true"></span>
+            {{ modo === 'crear' ? 'Crear cuenta' : (modo === 'confirmar' ? 'Confirmar cuenta' : 'Entrar') }}
+          </button>
+        </form>
+
+        <p class="login-footer" *ngIf="!cognito.configurado" style="margin-top:14px;">
+          Amazon Cognito aún no está configurado: se carga el User Pool y el App Client en
+          <code>environment.prod.ts</code> (GUIA-DESPLIEGUE.txt, sección 0.2).
+        </p>
+      </div>
+
+      <div class="alert alert-info" style="margin-top:24px; text-align:left;">
+        Con Microsoft se usa el mismo tenant de Azure del proyecto
+        (<code>9150f81f-b0fc-436d-998d-dcb5cf883d2e</code>). Con Cognito se usa una cuenta
+        creada en el User Pool de AWS.
+      </div>
+    </ng-container>
+
+    <ng-container *ngIf="estaAutenticado">
+      <div class="alert alert-success" style="text-align:left;">
+        ✅ Ya estás autenticado<ng-container *ngIf="cognito.tieneSesion()"> con tu cuenta de Cognito</ng-container>.
+        Ve al catálogo para comenzar a comprar.
+      </div>
+      <button class="btn btn-primary btn-lg" routerLink="/catalogo">Ver catálogo →</button>
+      <button class="btn btn-secondary" type="button" *ngIf="cognito.tieneSesion()"
+              (click)="salirDeCognito()" style="margin-top:12px;">
+        Cerrar sesión de Cognito
+      </button>
+      <p class="login-footer" *ngIf="!cognito.tieneSesion()">
+        Si la página queda en blanco, revisa que el redirect URI en Azure sea exactamente
+        <code>https://n27vhcx1n0.execute-api.us-east-1.amazonaws.com/desarrollo/</code>
+        (plataforma SPA).
+      </p>
+    </ng-container>
+
+    <div class="login-divider"></div>
+    <p class="login-footer">Proyecto Desarrollo Cloud Native I · DSY1107</p>
+  </div>
+</div>

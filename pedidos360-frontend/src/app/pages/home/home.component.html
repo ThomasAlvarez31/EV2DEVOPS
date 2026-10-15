@@ -1,0 +1,110 @@
+<section class="hero-tienda">
+  <div class="hero-contenido">
+    <span class="hero-eyebrow">Tienda online · Arquitectura cloud native</span>
+    <h1>Todo lo que necesitas, <span class="acento">en un solo lugar</span></h1>
+    <p class="hero-texto">
+      Explora catálogo de tecnología, deportes y hogar, paga con el método que
+      prefieras y recibe la confirmación de tu compra por correo electrónico.
+    </p>
+
+    <form class="hero-buscador" (ngSubmit)="buscar()">
+      <input type="search" name="heroQ" [(ngModel)]="termino" placeholder="¿Qué estás buscando?" aria-label="Buscar" />
+      <button class="btn btn-primary" type="submit">Buscar</button>
+    </form>
+
+    <div class="hero-acciones">
+      <a routerLink="/catalogo" class="btn btn-accent btn-lg">Ver catálogo</a>
+      <a routerLink="/pedidos" class="btn btn-ghost btn-lg">Mis pedidos</a>
+    </div>
+  </div>
+
+  <div class="hero-visual" aria-hidden="true">
+    <img *ngFor="let p of destacados.slice(0, 3); let i = index"
+         class="hero-foto hero-foto-{{ i + 1 }}" [src]="imagenDe(p)" alt="" />
+    <div class="hero-float hero-float-1">
+      <strong>Pago simulado</strong>
+      <span>Crédito, débito o transferencia</span>
+    </div>
+    <div class="hero-float hero-float-2">
+      <strong>Confirmación por correo</strong>
+      <span>Al registrar y al pagar</span>
+    </div>
+  </div>
+</section>
+
+<section class="ventajas">
+  <div class="ventaja">
+    <span class="ventaja-icono" aria-hidden="true">&#9889;</span>
+    <div><strong>Compra en 3 pasos</strong><span>Carrito, checkout y pago</span></div>
+  </div>
+  <div class="ventaja">
+    <span class="ventaja-icono" aria-hidden="true">&#128274;</span>
+    <div><strong>Login con Microsoft</strong><span>Autenticación Entra ID</span></div>
+  </div>
+  <div class="ventaja">
+    <span class="ventaja-icono" aria-hidden="true">&#9993;</span>
+    <div><strong>Correos automáticos</strong><span>Procesados por RabbitMQ</span></div>
+  </div>
+  <div class="ventaja">
+    <span class="ventaja-icono" aria-hidden="true">&#128722;</span>
+    <div><strong>Historial de pedidos</strong><span>Estado del pedido y del pago</span></div>
+  </div>
+</section>
+
+<section class="seccion" *ngIf="categorias.length > 0">
+  <div class="seccion-cabecera">
+    <h2>Comprá por categoría</h2>
+    <a routerLink="/catalogo">Ver todo</a>
+  </div>
+  <div class="categoria-grid">
+    <button class="categoria-card" *ngFor="let c of categorias" type="button" (click)="irACategoria(c)">
+      <span class="categoria-nombre">{{ c }}</span>
+      <span class="categoria-cta">Explorar &rarr;</span>
+    </button>
+  </div>
+</section>
+
+<section class="seccion">
+  <div class="seccion-cabecera">
+    <h2>Productos destacados</h2>
+    <a routerLink="/catalogo">Ver catálogo completo</a>
+  </div>
+
+  <div class="loading" *ngIf="cargando">
+    <div class="spinner"></div>
+    Cargando productos...
+  </div>
+
+  <div class="alert alert-error" *ngIf="error">{{ error }}</div>
+
+  <div class="product-grid" *ngIf="!cargando && !error">
+    <article class="product-card" *ngFor="let producto of destacados">
+      <div class="product-card-media">
+        <img class="product-card-img" [src]="imagenDe(producto)" [alt]="producto.nombre" loading="lazy" />
+        <span class="product-card-stock" *ngIf="producto.stock > 0">{{ producto.stock }} disponibles</span>
+        <span class="product-card-stock out" *ngIf="producto.stock <= 0">Sin stock</span>
+      </div>
+      <div class="product-card-body">
+        <span class="product-card-category">{{ producto.categoria }}</span>
+        <h3 class="product-card-title">{{ producto.nombre }}</h3>
+        <p class="product-card-desc">{{ producto.descripcion }}</p>
+        <div class="product-card-footer">
+          <span class="product-card-price">${{ producto.precio | number:'1.0-0' }}</span>
+          <button class="btn btn-primary" type="button"
+                  [disabled]="producto.stock <= 0 || agregando === producto.id"
+                  (click)="agregarAlCarrito(producto)">
+            {{ agregando === producto.id ? 'Agregando…' : 'Agregar' }}
+          </button>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="cta-banda">
+  <div>
+    <h2>¿Listo para comprar?</h2>
+    <p>Revisá tu carrito, elegí el medio de pago y confirmá tu pedido.</p>
+  </div>
+  <a routerLink="/carrito" class="btn btn-light btn-lg">Ir al carrito</a>
+</section>

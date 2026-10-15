@@ -1,0 +1,99 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: ms-ordenes
+
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:pedidos360_ordenes}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Broker de mensajes (en docker-compose apunta al servicio "rabbitmq").
+  # La orden se REGISTRA de forma asincrona a partir de los eventos que
+  # publica ms-carrito: este microservicio no escribe ni un pedido.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # Confirmacion EXPLICITA del consumidor: OrdenListener hace basicAck /
+        # basicNack sobre el canal (com.rabbitmq.client.Channel). El
+        # contenedor NO confirma ni re-encola nada por su cuenta.
+        acknowledge-mode: manual
+        # Solo un mensaje en vuelo por hilo: si la aplicacion se cae, el
+        # mensaje sin confirmar vuelve a la cola (al menos una vez).
+        prefetch: 1
+        # Nunca se re-encola automaticamente al fallar el listener: la
+        # decision de requeue la toma el propio OrdenListener.
+        default-requeue-rejected: false
+        # Sin reintentos del contenedor: las decisiones de error estan en
+        # OrdenListener, para que sean visibles y diferenciadas en el codigo.
+        retry:
+          enabled: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AZURE_ISSUER_URI:https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0}
+
+# Prueba local sin Azure (AUTH_BYPASS=true): no se exige JWT.
+# Por defecto false => autenticacion completa con Microsoft Entra ID.
+app:
+  auth:
+    bypass: ${AUTH_BYPASS:false}
+    # Segundo emisor de identidad aceptado: Amazon Cognito (cuentas propias
+    # de la tienda). Vacio = solo Microsoft Entra ID.
+    cognito-issuer: ${COGNITO_ISSUER_URL:}
+
+# ---------------------------------------------------------------
+# Rutas de mensajeria RabbitMQ del consumidor de ORDENES. Este
+# microservicio declara su cola, su DLQ y sus bindings; OrdenListener
+# lee la cola con ${pedidos360.messaging.ordenes.queue}. El EXCHANGE
+# es del sistema y lo declara el productor (ms-carrito) con
+# EXACTAMENTE el mismo nombre (sin PRECONDITION_FAILED).
+#
+# Rutas consumidas (las cuatro del sistema):
+#   pedido.registrado    -> crea la orden (REGISTRADA)
+#   pago.aprobado        -> la orden pasa a PAGADA
+#   pago.rechazado       -> la orden pasa a CANCELADA
+#   pedido.cambio_estado -> guarda el ultimo estado logistico visto
+# ---------------------------------------------------------------
+pedidos360:
+  messaging:
+    ordenes:
+      # Exchange directo de eventos de negocio (el productor lo declara).
+      exchange: ${MESSAGING_EVENTOS_EXCHANGE:pedidos360.eventos.topic}
+      # Cola que consume este microservicio.
+      queue: ${MESSAGING_ORDENES_QUEUE:pedidos360.ordenes}
+      # Cola de respaldo (dead letter) si el mensaje no se puede entregar.
+      dlq: ${MESSAGING_ORDENES_DLQ:pedidos360.ordenes.dlq}
+      # Binding = exchange + routing key -> cola. Una entrada por ruta.
+      routing-keys:
+        pedido-registrado: ${MESSAGING_RK_PEDIDO_REGISTRADO:pedido.registrado}
+        pago-aprobado: ${MESSAGING_RK_PAGO_APROBADO:pago.aprobado}
+        pago-rechazado: ${MESSAGING_RK_PAGO_RECHAZADO:pago.rechazado}
+        cambio-estado: ${MESSAGING_RK_CAMBIO_ESTADO:pedido.cambio_estado}
+      # Politica de reintentos del consumidor (ACK explicito).
+      consumer:
+        max-attempts: ${MESSAGING_ORDENES_MAX_ATTEMPTS:3}
+        retry-delay-ms: ${MESSAGING_ORDENES_RETRY_DELAY_MS:1000}

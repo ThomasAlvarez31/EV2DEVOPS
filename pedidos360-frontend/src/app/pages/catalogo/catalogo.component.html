@@ -1,0 +1,67 @@
+<div class="page-space">
+  <div class="catalogo-cabecera">
+    <div>
+      <h1>Catálogo de productos</h1>
+      <p class="muted">Tecnología, deportes y hogar. Precios y stock verificados contra ms-productos.</p>
+    </div>
+
+    <form class="catalogo-buscador" (ngSubmit)="buscar()">
+      <input type="search" name="q" [(ngModel)]="terminoBusqueda" placeholder="Buscar por nombre…" aria-label="Buscar" />
+      <button class="btn btn-primary" type="submit">Buscar</button>
+    </form>
+  </div>
+
+  <div class="alert alert-error" *ngIf="error">
+    {{ error }}
+    <button class="btn btn-sm btn-secondary" type="button" (click)="cargarProductos()">Reintentar</button>
+  </div>
+
+  <div class="chip-bar" *ngIf="categorias.length > 0">
+    <button class="chip" [class.active]="categoriaSeleccionada === null"
+            (click)="filtrarCategoria(null)">Todas</button>
+    <button class="chip" *ngFor="let cat of categorias"
+            [class.active]="categoriaSeleccionada === cat"
+            (click)="filtrarCategoria(cat)">{{ cat }}</button>
+  </div>
+
+  <div class="loading" *ngIf="cargando">
+    <div class="spinner"></div>
+    Cargando catálogo...
+  </div>
+
+  <div class="product-grid" *ngIf="!cargando && productos.length > 0">
+    <article class="product-card" *ngFor="let producto of productos">
+      <div class="product-card-media">
+        <img class="product-card-img" [src]="imagenDe(producto)" [alt]="producto.nombre" loading="lazy" />
+        <span class="product-card-stock" *ngIf="producto.stock > 0">{{ producto.stock }} disponibles</span>
+        <span class="product-card-stock out" *ngIf="producto.stock <= 0">Sin stock</span>
+      </div>
+      <div class="product-card-body">
+        <span class="product-card-category">{{ producto.categoria }}</span>
+        <h3 class="product-card-title">{{ producto.nombre }}</h3>
+        <p class="product-card-desc">{{ producto.descripcion }}</p>
+        <div class="product-card-footer">
+          <span class="product-card-price">${{ producto.precio | number:'1.0-0' }}</span>
+          <button class="btn btn-primary" type="button"
+                  [disabled]="producto.stock <= 0 || agregando === producto.id"
+                  (click)="agregarAlCarrito(producto)">
+            {{ agregando === producto.id ? 'Agregando…' : 'Agregar' }}
+          </button>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <div class="empty-state" *ngIf="!cargando && productos.length === 0 && !error">
+    <div class="empty-state-icon" aria-hidden="true">&#128269;</div>
+    <h3>No encontramos productos</h3>
+    <p *ngIf="terminoBusqueda || categoriaSeleccionada">
+      No hay resultados para los filtros aplicados.
+    </p>
+    <p *ngIf="!terminoBusqueda && !categoriaSeleccionada">
+      El catálogo está vacío en este momento.
+    </p>
+    <button class="btn btn-primary btn-lg" type="button" (click)="limpiarFiltros()"
+            *ngIf="terminoBusqueda || categoriaSeleccionada">Limpiar filtros</button>
+  </div>
+</div>

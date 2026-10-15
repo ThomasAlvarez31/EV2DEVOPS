@@ -1,0 +1,88 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: ms-carrito
+
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:pedidos360_carrito}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Broker de mensajes (en docker-compose apunta al servicio "rabbitmq")
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+  # Broker de eventos para monitoreo (en docker-compose apunta al servicio "kafka")
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AZURE_ISSUER_URI:https://login.microsoftonline.com/9150f81f-b0fc-436d-998d-dcb5cf883d2e/v2.0}
+
+# Prueba local sin Azure (AUTH_BYPASS=true): no se exige JWT.
+# Por defecto false => autenticación completa con Microsoft Entra ID.
+app:
+  auth:
+    bypass: ${AUTH_BYPASS:false}
+    # Segundo emisor de identidad aceptado: Amazon Cognito (cuentas propias
+    # de la tienda). Vacio = solo Microsoft Entra ID.
+    cognito-issuer: ${COGNITO_ISSUER_URL:}
+
+  # ms-productos es la fuente de verdad de precios y stock.
+  # En docker-compose apunta al servicio "ms-productos".
+  productos:
+    url: ${PRODUCTOS_SERVICE_URL:http://localhost:8081/productos}
+
+  # ms-pagos es la fuente de verdad del resultado del pago.
+  # En docker-compose apunta al servicio "ms-pagos".
+  pagos:
+    url: ${PAGOS_SERVICE_URL:http://localhost:8085/pagos}
+
+# ---------------------------------------------------------------
+# Rutas de mensajeria RabbitMQ del lado PRODUCTOR (unico exchange
+# del sistema de eventos de negocio). No hay nombres sueltos en el
+# codigo: RabbitConfig lee de aqui para declarar el exchange y
+# EventoNegocioPublisher para publicar. Cada consumidor declara su
+# cola, su DLQ y sus bindings con EXACTAMENTE los mismos valores
+# (mismos argumentos -> sin PRECONDITION_FAILED):
+#   pedidos360.emails     -> ms-email      (correo)
+#   pedidos360.stock      -> ms-productos  (descuento de stock)
+#   pedidos360.ordenes    -> ms-ordenes    (orden formal)
+#   pedidos360.despachos  -> ms-despachos  (despacho)
+# ---------------------------------------------------------------
+pedidos360:
+  messaging:
+    eventos:
+      # Exchange directo de eventos de negocio (por aqui salen TODOS
+      # los eventos: pedido, pago y cambio de estado).
+      exchange: ${MESSAGING_EVENTOS_EXCHANGE:pedidos360.eventos.topic}
+      # Tipo de evento -> routing key. Una entrada por caso de uso.
+      routing-keys:
+        pedido-registrado: ${MESSAGING_RK_PEDIDO_REGISTRADO:pedido.registrado}
+        pago-aprobado: ${MESSAGING_RK_PAGO_APROBADO:pago.aprobado}
+        pago-rechazado: ${MESSAGING_RK_PAGO_RECHAZADO:pago.rechazado}
+        cambio-estado: ${MESSAGING_RK_CAMBIO_ESTADO:pedido.cambio_estado}
+

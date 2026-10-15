@@ -1,0 +1,85 @@
+<div class="page-space">
+  <div class="seccion-cabecera">
+    <div>
+      <h1>Mi carrito</h1>
+      <p class="muted" *ngIf="items.length > 0">
+        {{ cantidadTotal }} {{ cantidadTotal === 1 ? 'producto' : 'productos' }}
+      </p>
+    </div>
+    <a routerLink="/catalogo" class="btn btn-outline btn-sm">Seguir comprando</a>
+  </div>
+
+  <div class="alert alert-error" *ngIf="error">
+    {{ error }}
+    <button class="btn btn-sm btn-secondary" type="button" (click)="cargarCarrito()">Reintentar</button>
+  </div>
+
+  <div class="loading" *ngIf="cargando">
+    <div class="spinner"></div>
+    Cargando carrito...
+  </div>
+
+  <div class="empty-state" *ngIf="!cargando && items.length === 0 && !error">
+    <div class="empty-state-icon" aria-hidden="true">&#128722;</div>
+    <h3>Tu carrito está vacío</h3>
+    <p>Explora el catálogo y agrega productos para comenzar tu compra.</p>
+    <a routerLink="/catalogo" class="btn btn-primary btn-lg">Ir al catálogo</a>
+  </div>
+
+  <div class="carrito-layout" *ngIf="!cargando && items.length > 0">
+    <div class="carrito-lista">
+      <div class="cart-item" *ngFor="let item of items">
+        <img class="cart-item-img" [src]="item.imagenUrl || imagenDefecto" [alt]="item.nombreProducto" />
+
+        <div class="cart-item-info">
+          <div class="cart-item-name">{{ item.nombreProducto }}</div>
+          <div class="cart-item-meta">Precio unitario: ${{ item.precioUnitario | number:'1.0-0' }}</div>
+
+          <div class="cantidad-stepper" role="group" aria-label="Cantidad">
+            <button type="button" class="stepper-btn" (click)="cambiarCantidad(item, -1)"
+                    [disabled]="actualizando === item.id" aria-label="Disminuir">−</button>
+            <span class="stepper-valor">{{ item.cantidad }}</span>
+            <button type="button" class="stepper-btn" (click)="cambiarCantidad(item, 1)"
+                    [disabled]="actualizando === item.id" aria-label="Aumentar">+</button>
+          </div>
+        </div>
+
+        <div class="cart-item-acciones">
+          <div class="cart-item-subtotal">
+            <span class="muted">Subtotal</span>
+            <strong>${{ item.precioUnitario * item.cantidad | number:'1.0-0' }}</strong>
+          </div>
+          <button class="btn btn-danger btn-sm" type="button"
+                  [disabled]="actualizando === item.id"
+                  (click)="eliminarItem(item)">Quitar</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="resumen-card">
+      <h2>Resumen</h2>
+
+      <div class="resumen-fila">
+        <span>Productos ({{ cantidadTotal }})</span>
+        <span>${{ total | number:'1.0-0' }}</span>
+      </div>
+      <div class="resumen-fila">
+        <span>Envío</span>
+        <span class="texto-exito">Gratis</span>
+      </div>
+
+      <div class="resumen-total">
+        <span>Total</span>
+        <span>${{ total | number:'1.0-0' }}</span>
+      </div>
+
+      <button class="btn btn-accent btn-lg btn-bloque" type="button" (click)="irAlCheckout()">
+        Continuar al checkout
+      </button>
+
+      <p class="resumen-nota">
+        En el siguiente paso elegís el método de pago y confirmás la compra.
+      </p>
+    </aside>
+  </div>
+</div>

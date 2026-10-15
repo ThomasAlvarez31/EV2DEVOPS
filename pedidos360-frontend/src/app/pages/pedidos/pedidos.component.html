@@ -1,0 +1,95 @@
+<div class="page-space">
+  <div class="seccion-cabecera">
+    <div>
+      <h1>Mis pedidos</h1>
+      <p class="muted" *ngIf="pedidos.length > 0">
+        {{ pedidos.length }} pedido(s) · total pagado ${{ totalPagado() | number:'1.0-0' }}
+      </p>
+    </div>
+    <button class="btn btn-outline btn-sm" type="button" (click)="cargar()">Actualizar</button>
+  </div>
+
+  <div class="alert alert-error" *ngIf="error">
+    {{ error }}
+    <button class="btn btn-sm btn-secondary" type="button" (click)="cargar()">Reintentar</button>
+  </div>
+
+  <div class="loading" *ngIf="cargando">
+    <div class="spinner"></div>
+    Cargando pedidos...
+  </div>
+
+  <div class="empty-state" *ngIf="!cargando && pedidos.length === 0 && !error">
+    <div class="empty-state-icon" aria-hidden="true">&#128230;</div>
+    <h3>Todavía no hiciste pedidos</h3>
+    <p>Cuando compres, vas a ver aquí el estado de tu pedido y su pago.</p>
+    <a routerLink="/catalogo" class="btn btn-primary btn-lg">Ir al catálogo</a>
+  </div>
+
+  <ng-container *ngIf="!cargando && pedidos.length > 0">
+    <div class="chip-bar">
+      <button class="chip" [class.active]="filtroEstado === 'TODOS'"
+              (click)="filtroEstado = 'TODOS'">Todos ({{ pedidos.length }})</button>
+      <button class="chip" *ngFor="let e of estados"
+              [class.active]="filtroEstado === e"
+              (click)="filtroEstado = e">
+        {{ etiquetasEstado[e] }} ({{ contar(e) }})
+      </button>
+    </div>
+
+    <div class="empty-state" *ngIf="pedidosFiltrados.length === 0">
+      <div class="empty-state-icon" aria-hidden="true">&#128269;</div>
+      <h3>Sin pedidos en «{{ filtroEstado === 'TODOS' ? 'Todos' : etiquetasEstado[filtroEstado] }}»</h3>
+      <button class="btn btn-outline" type="button" (click)="filtroEstado = 'TODOS'">Quitar filtro</button>
+    </div>
+
+    <div class="pedido-card" *ngFor="let pedido of pedidosFiltrados">
+      <button class="pedido-cabecera" type="button" (click)="alternar(pedido.id)"
+              [attr.aria-expanded]="expandido === pedido.id">
+        <div class="pedido-id">
+          <strong>Pedido #{{ pedido.id }}</strong>
+          <span class="muted">{{ fecha(pedido) }}</span>
+        </div>
+
+        <div class="pedido-estados">
+          <span class="{{ claseEstado(pedido.estado) }}">{{ etiquetasEstado[pedido.estado] }}</span>
+          <span class="{{ clasePago(pedido.estadoPago) }}">Pago: {{ etiquetasPago[pedido.estadoPago] }}</span>
+          <span class="muted" *ngIf="pedido.metodoPago">{{ etiquetasMetodo[pedido.metodoPago] }}</span>
+        </div>
+
+        <div class="pedido-total">
+          <strong>${{ pedido.total | number:'1.0-0' }}</strong>
+          <span class="pedido-flecha">{{ expandido === pedido.id ? '▲' : '▼' }}</span>
+        </div>
+      </button>
+
+      <div class="pedido-detalles" *ngIf="expandido === pedido.id">
+        <div class="pedido-item" *ngFor="let item of pedido.items">
+          <img [src]="item.imagenUrl || imagenDefecto" [alt]="item.nombreProducto" />
+          <div class="pedido-item-info">
+            <strong>{{ item.nombreProducto }}</strong>
+            <span class="muted">{{ item.cantidad }} × ${{ item.precioUnitario | number:'1.0-0' }}</span>
+          </div>
+          <span>${{ item.precioUnitario * item.cantidad | number:'1.0-0' }}</span>
+        </div>
+
+        <div class="pedido-resumen-final">
+          <div class="resumen-fila">
+            <span>Estado del pedido</span>
+            <span class="{{ claseEstado(pedido.estado) }}">{{ etiquetasEstado[pedido.estado] }}</span>
+          </div>
+          <div class="resumen-fila">
+            <span>Estado del pago</span>
+            <span class="{{ clasePago(pedido.estadoPago) }}">{{ etiquetasPago[pedido.estadoPago] }}</span>
+          </div>
+          <div class="resumen-fila" *ngIf="pedido.metodoPago">
+            <span>Método de pago</span><span>{{ etiquetasMetodo[pedido.metodoPago] }}</span>
+          </div>
+          <div class="resumen-total">
+            <span>Total</span><span>${{ pedido.total | number:'1.0-0' }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ng-container>
+</div>

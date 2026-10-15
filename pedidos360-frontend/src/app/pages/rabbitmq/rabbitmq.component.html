@@ -1,0 +1,185 @@
+<div class="page-space">
+  <div class="seccion-cabecera">
+    <div>
+      <h1>RabbitMQ</h1>
+      <p class="muted">
+        Administración en vivo del broker a través de <strong>ms-rabbit-admin</strong>
+        (API REST: <code>GET/POST/DELETE /queues</code>, <code>/exchanges</code> y <code>/bindings</code>).
+      </p>
+    </div>
+    <button class="btn btn-outline" type="button" (click)="recargar()" [disabled]="cargando">
+      <span class="spinner spinner-sm" *ngIf="cargando" aria-hidden="true"></span>
+      Actualizar
+    </button>
+  </div>
+
+  <div class="alert alert-error" *ngIf="error">{{ error }}</div>
+
+  <div class="loading" *ngIf="cargando && !error">
+    <span class="spinner" aria-hidden="true"></span> Consultando el broker…
+  </div>
+
+  <ng-container *ngIf="!error">
+    <!-- ---------------------------------------------------------- COLAS -->
+    <section class="panel rabbit-panel">
+      <h2>Colas <span class="rabbit-contador">{{ colasVisibles.length }}</span></h2>
+      <p class="muted">Aquí viven los mensajes: <code>pedidos360.emails</code> la consume ms-email,
+        <code>pedidos360.stock</code> ms-productos, <code>pedidos360.ordenes</code> ms-ordenes y
+        <code>pedidos360.despachos</code> ms-despachos; cada <code>.dlq</code> acumula los que no
+        se pudieron entregar.</p>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla-rabbit">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Mensajes</th>
+              <th>Consumidores</th>
+              <th>Durable</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let cola of colasVisibles">
+              <td><code>{{ cola.name }}</code></td>
+              <td>
+                <span class="chip" [class.chip-alerta]="(cola.messages || 0) > 0">{{ cola.messages ?? 0 }}</span>
+              </td>
+              <td>{{ cola.consumers ?? 0 }}</td>
+              <td>{{ cola.durable ? 'Sí' : 'No' }}</td>
+              <td class="tabla-acciones">
+                <button class="btn btn-outline btn-sm" type="button" (click)="borrarCola(cola)">Borrar</button>
+              </td>
+            </tr>
+            <tr *ngIf="colasVisibles.length === 0">
+              <td colspan="5" class="muted">No hay colas declaradas todavía.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form class="rabbit-form" (ngSubmit)="crearCola()">
+        <div class="campo">
+          <label for="cola-nombre">Nueva cola</label>
+          <input id="cola-nombre" name="colaNombre" [(ngModel)]="nuevaCola.name"
+                 placeholder="ej: pedidos360.prueba" autocomplete="off" />
+        </div>
+        <label class="switch rabbit-switch">
+          <input type="checkbox" [(ngModel)]="nuevaCola.durable" name="colaDurable" />
+          <span class="switch-slider"></span>
+          <span class="rabbit-switch-texto">Durable</span>
+        </label>
+        <button class="btn btn-primary" type="submit">Crear cola</button>
+      </form>
+    </section>
+
+    <!-- ------------------------------------------------------ EXCHANGES -->
+    <section class="panel rabbit-panel">
+      <h2>Exchanges <span class="rabbit-contador">{{ exchangesVisibles.length }}</span></h2>
+      <p class="muted">Los productores publican AQUÍ (nunca directo a una cola). El sistema usa
+        <code>pedidos360.eventos.topic</code> con routing keys <code>pedido.registrado</code>,
+        <code>pago.aprobado</code>, <code>pago.rechazado</code> y <code>pedido.cambio_estado</code>:
+        ms-carrito declara el exchange y cada consumidor declara su cola y sus bindings.</p>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla-rabbit">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Tipo</th>
+              <th>Durable</th>
+              <th>Auto-delete</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let exchange of exchangesVisibles">
+              <td><code>{{ exchange.name }}</code></td>
+              <td>{{ exchange.type }}</td>
+              <td>{{ exchange.durable ? 'Sí' : 'No' }}</td>
+              <td>{{ exchange.autoDelete ? 'Sí' : 'No' }}</td>
+              <td class="tabla-acciones">
+                <button class="btn btn-outline btn-sm" type="button" (click)="borrarExchange(exchange)">Borrar</button>
+              </td>
+            </tr>
+            <tr *ngIf="exchangesVisibles.length === 0">
+              <td colspan="5" class="muted">No hay exchanges propios todavía.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form class="rabbit-form" (ngSubmit)="crearExchange()">
+        <div class="campo">
+          <label for="exchange-nombre">Nuevo exchange</label>
+          <input id="exchange-nombre" name="exchangeNombre" [(ngModel)]="nuevoExchange.name"
+                 placeholder="ej: pedidos360.demo" autocomplete="off" />
+        </div>
+        <div class="campo">
+          <label for="exchange-tipo">Tipo</label>
+          <select id="exchange-tipo" name="exchangeTipo" [(ngModel)]="nuevoExchange.type">
+            <option *ngFor="let tipo of tiposExchange" [value]="tipo">{{ tipo }}</option>
+          </select>
+        </div>
+        <label class="switch rabbit-switch">
+          <input type="checkbox" [(ngModel)]="nuevoExchange.durable" name="exchangeDurable" />
+          <span class="switch-slider"></span>
+          <span class="rabbit-switch-texto">Durable</span>
+        </label>
+        <button class="btn btn-primary" type="submit">Crear exchange</button>
+      </form>
+    </section>
+
+    <!-- ------------------------------------------------------- BINDINGS -->
+    <section class="panel rabbit-panel">
+      <h2>Bindings <span class="rabbit-contador">{{ bindings.length }}</span></h2>
+      <p class="muted">El enlace exchange → cola con su routing key. Sin binding, el mensaje se
+        descarta y nunca llega al consumidor.</p>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla-rabbit">
+          <thead>
+            <tr>
+              <th>Exchange</th>
+              <th>Cola</th>
+              <th>Routing key</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let binding of bindings">
+              <td><code>{{ binding.exchange }}</code></td>
+              <td><code>{{ binding.queue }}</code></td>
+              <td><code>{{ binding.routingKey }}</code></td>
+              <td class="tabla-acciones">
+                <button class="btn btn-outline btn-sm" type="button" (click)="borrarBinding(binding)">Borrar</button>
+              </td>
+            </tr>
+            <tr *ngIf="bindings.length === 0">
+              <td colspan="4" class="muted">No hay bindings todavía.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form class="rabbit-form" (ngSubmit)="crearBinding()">
+        <div class="campo">
+          <label for="binding-exchange">Exchange</label>
+          <input id="binding-exchange" name="bindingExchange" [(ngModel)]="nuevoBinding.exchange"
+                 placeholder="ej: pedidos360.demo" autocomplete="off" />
+        </div>
+        <div class="campo">
+          <label for="binding-cola">Cola</label>
+          <input id="binding-cola" name="bindingCola" [(ngModel)]="nuevoBinding.queue"
+                 placeholder="ej: pedidos360.prueba" autocomplete="off" />
+        </div>
+        <div class="campo">
+          <label for="binding-routing">Routing key</label>
+          <input id="binding-routing" name="bindingRouting" [(ngModel)]="nuevoBinding.routingKey"
+                 placeholder="ej: pedido.registrado" autocomplete="off" />
+        </div>
+        <button class="btn btn-primary" type="submit">Crear binding</button>
+      </form>
+    </section>
+  </ng-container>
+</div>
